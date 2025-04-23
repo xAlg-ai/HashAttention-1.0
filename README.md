@@ -30,7 +30,7 @@ To play around with hashattention:
 from hashattention.hashattention_llama import convert
 patch="./artifacts/llama3.1-8b-patch.64K.v1.pt"
 model_name_or_path = "meta-llama/Llama-3.1-8B-Instruct"
-model  = AutoConfig.from_pretrained(model_name_or_path)
+model  = AutoModelForCausalLM.from_pretrained(model_name_or_path)
 config = AutoConfig.from_pretrained(model_name_or_path)
 config.lth_init_dim = 128
 config.lth_final_dim = 32
