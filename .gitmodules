@@ -1,0 +1,6 @@
+[submodule "eval/LongBenchEval"]
+	path = eval/LongBenchEval
+	url = https://github.com/xAlg-ai/LongBenchEval.git
+[submodule "eval/RULER"]
+	path = eval/RULER
+	url = https://github.com/xAlg-ai/RULER.git
