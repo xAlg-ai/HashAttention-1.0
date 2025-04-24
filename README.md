@@ -27,7 +27,7 @@ pip install -e .
 To play around with hashattention:
 
 ```python
-from hashattention.hashattention_llama import convert
+from hashattention.hashattention_llama import convert_usa, load_usa
 patch="./artifacts/llama3.1-8b-patch.64K.v1.pt"
 model_name_or_path = "meta-llama/Llama-3.1-8B-Instruct"
 model  = AutoModelForCausalLM.from_pretrained(model_name_or_path)
