@@ -47,7 +47,7 @@ model = convert_usa(model, config, usa_modules, collect_stats = False, train_usa
 
 ## 🧠 Contributions
 
-This work is brought to you by HashAttention Team at sky-lab
+This work is brought to you by HashAttention Team at [sky-lab](https://sky.cs.berkeley.edu/), UC Berkeley
 
 Correspondance [Aditya Desai](https://apd10.github.io/)
 
