@@ -1,5 +1,5 @@
+![#Attention](https://github.com/xAlg-ai/hashattention1.0/blob/main/images/logo2.png?raw=true)
 # HashAttention : Semantic Sparsity for Faster Inference
-
 [![arXiv.v1](https://img.shields.io/badge/arxiv.v1-2412.14468-B31B1B.svg)](https://arxiv.org/abs/2412.14468)
 
 TLDR; HashAttention is a lightweight sparse attention.
