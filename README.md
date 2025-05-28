@@ -14,7 +14,8 @@ This repo has been tested with
 transformers==4.46.0
 ```
 ```
-git clone https://github.com/xAlg-ai/hashattention1.0
+git clone --recursive https://github.com/xAlg-ai/HashAttention-1.0
+cd HashAttention-1.0/
 pip install -e .
 ```
 
