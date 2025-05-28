@@ -264,7 +264,6 @@ class LlamaAttention_heavy_hitter(nn.Module):
 
         self.init_budget = config.init_budget
         self.heavy_budget = config.heavy_budget
-        self.sampling_budget = config.sampling_budget
         self.recent_budget = config.recent_budget
         self.cache_budget_records = [] # determined by USA
         self.usa_module = None
@@ -292,12 +291,8 @@ class LlamaAttention_heavy_hitter(nn.Module):
         self.tr_loss_func = None
         self.tr_optimizer = None
 
-        # sampling
-        self.sampling = (self.sampling_budget > 1e-4)
-        self.hat_sampling = config.hat_sampling
-
     def __repr__(self):
-        return f"{super().__repr__()}\nSparsification Setting(topk:{self.heavy_budget} sampling:{self.sampling_budget} edge:{self.init_budget, self.recent_budget} \n eval_mode:{self.usa_eval_mode} stats:{self.collect_stats}\n Istraining:{self.train_usa} )"
+        return f"{super().__repr__()}\nSparsification Setting(topk:{self.heavy_budget}  edge:{self.init_budget, self.recent_budget} \n eval_mode:{self.usa_eval_mode} stats:{self.collect_stats}\n Istraining:{self.train_usa} )"
 
 
     def _reset_state(self):
@@ -448,7 +443,7 @@ class LlamaAttention_heavy_hitter(nn.Module):
             mask.masked_fill_(span >= thold, True)
         # self.cache_budget_records.append(torch.mean(torch.sum(mask.float(), dim=-1)).mean().item())
         # print(self.cache_budget_records)
-        return mask, span
+        return mask
 
     def compute_mask(self, key_states, query_states):
         bsz = query_states.shape[0]
@@ -514,64 +509,6 @@ class LlamaAttention_heavy_hitter(nn.Module):
                 self.print_offloading_flag = True
             past_key_value.key_cache[self.layer_idx] = past_key_value.key_cache[self.layer_idx].cpu()
             past_key_value.value_cache[self.layer_idx] = past_key_value.value_cache[self.layer_idx].cpu()
-
-    def full_attention_output(self, attn_weights_raw, value_states):
-        attn_weights = nn.functional.softmax(attn_weights_raw, dim=-1, dtype=torch.float32).to(value_states.dtype)
-        return torch.matmul(attn_weights, value_states)
-        
-    def sparse_topk_attention_output(self, attn_weights_raw, value_states, sparse_mask):
-        attn_weights = attn_weights_raw.masked_fill(torch.logical_not(sparse_mask), torch.finfo(attn_weights_raw.dtype).min)
-        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(value_states.dtype)
-        attn_output = torch.matmul(attn_weights, value_states)
-        return attn_output
-    
-    def sparse_topk_plus_sampled_output(self, attn_weights_raw, value_states, sampling_tensor):
-        max_x = torch.max(attn_weights_raw, dim=-1, keepdim=True).values
-        exp_x = torch.exp(attn_weights_raw - max_x) * sampling_tensor
-        softmax_x = exp_x / torch.sum(exp_x, dim=-1, keepdim=True)
-        attn_output = torch.matmul(softmax_x, value_states)
-        return attn_output
-
-    def generate_binary_tensor(self, shape, budget, device, prob=None):
-        if budget < 1.0:
-            budget = int(budget * shape[-1])
-        assert shape[-1] >= budget, "k must be <= size of last dimension"
-        b,h,q,k = shape
-        # import pdb
-        # pdb.set_trace()
-        
-        if prob is None:
-            prob = torch.ones(*shape, device=device)
-        
-            prob[:,:,:,:self.init_budget] = 0 # init
-            causal_heavy_recent_mask = torch.tril(torch.ones(q,k,device=device), diagonal=k-q-self.recent_budget).bool()
-            prob.masked_fill_(torch.logical_not(causal_heavy_recent_mask), 0) # causal + edge
-        else:
-            prob = prob + self.usa_module.lth_final_dim + 1    
-            prob[:,:,:,:self.init_budget] = 0 # init
-            causal_heavy_recent_mask = torch.tril(torch.ones(q,k,device=device), diagonal=k-q-self.recent_budget).bool()
-            prob.masked_fill_(torch.logical_not(causal_heavy_recent_mask), 0) # causal + edge
-            #print(torch.min(prob), torch.max(prob))
-            
-        # Flatten all dimensions except the last
-        prob = prob.reshape(-1, shape[-1])
-        prob = prob / torch.sum(prob, dim=-1).unsqueeze(-1)        
-        indices = torch.multinomial(
-            prob, 
-            num_samples=budget, 
-            replacement=False,
-        )
-        num_rows = b*h*q
-        # Create the flat tensor
-        tensor_flat = torch.zeros(num_rows, shape[-1], dtype=prob.dtype, device=device)
-        row_indices = torch.arange(num_rows).unsqueeze(1).expand(-1, budget)
-        
-        tensor_flat[row_indices, indices] = 1. / (budget * prob[row_indices, indices]) # 1/probability
-        
-        # Reshape back
-        tensor = tensor_flat.view(*shape)
-        return tensor.bfloat16()
-
 
 
     def forward(
@@ -665,50 +602,22 @@ class LlamaAttention_heavy_hitter(nn.Module):
             attention_mask = attention_mask.masked_fill(boolean_mask == False, torch.finfo(attn_weights.dtype).min).view(1, 1, q_len, kv_seq_len)
             attn_weights = attn_weights + attention_mask
 
-        sparse_mask, span_scores = self.compute_mask_multi(key_states, query_states) # True = keep and False = throw away
+        sparse_mask = self.compute_mask_multi(key_states, query_states) # True = keep and False = throw away
+        attn_weights.masked_fill_(torch.logical_not(sparse_mask), torch.finfo(attn_weights.dtype).min)
+
         
-        if not self.sampling :
-            o1 = self.full_attention_output(attn_weights, value_states)
-            o2 = self.sparse_topk_attention_output(attn_weights, value_states, sparse_mask)
-            if q_len > 0:
-                # print(torch.nn.functional.softmax(attn_weights, dim=-1).sort(dim=-1)[0][:,:,:,-5:])
-                cosine = torch.sum((o1 / torch.norm(o1, dim=-1).unsqueeze(-1)) *  (o2 / torch.norm(o2, dim=-1).unsqueeze(-1)), dim=-1).mean()
-                print(self.layer_idx, "topk", (torch.norm(o1-o2, dim=-1) / torch.norm(o1, dim=-1)).mean().item(), "cosine", cosine.item())
-                print(flush=True)
-
-            attn_weights.masked_fill_(torch.logical_not(sparse_mask), torch.finfo(attn_weights.dtype).min)
-
-            
-            # upcast attention to fp32
-            if self.use_softmax_maxtrick:
-                attn_weights = memory_efficient_softmax(attn_weights, dim=-1) # avoids upcast
-            else:
-                attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-                
-            attn_output = torch.matmul(attn_weights, value_states)
-            if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
-                raise ValueError(
-                    f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
-                    f" {attn_output.size()}"
-                )
-            
+        # upcast attention to fp32
+        if self.use_softmax_maxtrick:
+            attn_weights = memory_efficient_softmax(attn_weights, dim=-1) # avoids upcast
         else:
-            # b, h, q, k
-            sparse_mask = sparse_mask.bfloat16() # convert to bfloat
-            sampling_tensor = self.generate_binary_tensor(sparse_mask.shape, self.sampling_budget, sparse_mask.device, span_scores if self.hat_sampling else None) # 0 and 1/pi
-            sampling_tensor = sparse_mask + (1 - sparse_mask) * sampling_tensor
-
-            o1 = self.full_attention_output(attn_weights, value_states)
-            o2 = self.sparse_topk_attention_output(attn_weights, value_states, sparse_mask)
-            o3 = self.sparse_topk_plus_sampled_output(attn_weights, value_states, sampling_tensor)
-            if q_len > 0:
-                # print(torch.nn.functional.softmax(attn_weights, dim=-1).sort(dim=-1)[0][:,:,:,-5:])
-                cosine = torch.sum((o1 / torch.norm(o1, dim=-1).unsqueeze(-1)) *  (o3 / torch.norm(o3, dim=-1).unsqueeze(-1)), dim=-1).mean()
-                print(self.layer_idx, "sparse", (torch.norm(o1-o2, dim=-1) / torch.norm(o1, dim=-1)).mean().item(), "sampled", (torch.norm(o1-o3, dim=-1) / torch.norm(o1, dim=-1)).mean().item(), "cosine", cosine.item())
-                print(flush=True)
-    
-            attn_output = o3
+            attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
             
+        attn_output = torch.matmul(attn_weights, value_states)
+        if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
+            raise ValueError(
+                f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
+                f" {attn_output.size()}"
+            )
 
         attn_output = attn_output.transpose(1, 2)
         attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
