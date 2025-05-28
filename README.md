@@ -4,6 +4,8 @@
 
 TLDR; HashAttention is a lightweight sparse attention.
 
+<i>This is a research repository meant for research purposes. It has messy code. We are working on a cleaner research framework for sparse attention. </i>
+
 ## 📦 Installation
 
 This repo has been tested with
