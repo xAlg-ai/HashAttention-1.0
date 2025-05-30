@@ -63,8 +63,15 @@ git submodule update --init
 See README.md of each eval (LongBench and RULER) for directions on how to evaluate.
 
 
-## TODO
-Add training scripts for HashAttention
+## Training HashAttention : Only Llama and Mistral supported as of now
+Based on infllm chunk based inference. so install it first.
+```bash
+pip install git+https://github.com/xAlg-ai/LongBenchEval.git
+```
+Example train usage
+```bash
+MODEL=llama CUDA_VISIBLE_DEVICES=1 python3 train_usa.py --model_path meta-llama/Meta-Llama-3.1-8B-Instruct --conv_type llama3-inst --train_datasets openwebtext --validation_dataset openwebtext --chunk_size 256 --verbose  --truncate_len 32000 --epochs 1  --save_usa x.pt
+```
 
 ## 🧠 Contributions
 
