@@ -283,7 +283,7 @@ class LlamaAttention_heavy_hitter(nn.Module):
         self.recalls = {}
         self.precision = {}
         self.print_offloading_flag = False
-        self.offloading_length = 25000
+        self.offloading_length = 24000
 
 
         #train usa
