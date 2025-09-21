@@ -1,2 +1,4 @@
 artifacts/llama3.1-8b-patch.32K.v1.pt filter=lfs diff=lfs merge=lfs -text
 artifacts/llama3.1-8b-patch.64K.v1.pt filter=lfs diff=lfs merge=lfs -text
+artifacts/llama3.1-8b-patch.64K.v1.hat_weights.pkl filter=lfs diff=lfs merge=lfs -text
+artifacts/DeepSeek-R1-Distill-Llama-8B-patch-layers2-dim64-max-context-24K.pt filter=lfs diff=lfs merge=lfs -text
